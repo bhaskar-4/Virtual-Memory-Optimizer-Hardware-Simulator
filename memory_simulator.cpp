@@ -201,17 +201,33 @@ void write_page_map(const std::string& policy,
 void write_training_data(const std::unordered_map<std::uint64_t, PageMetadata>& pages,
                          std::size_t dram_capacity) {
     std::vector<std::pair<std::uint64_t, long double>> ranked_pages;
+    std::vector<std::pair<std::uint64_t, long double>> value_scores;
+
     for (const auto& item : pages) {
         const PageMetadata& page = item.second;
         const std::uint64_t reuse_distance = page.reuse_samples == 0
                                                  ? static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())
                                                  : page.total_reuse_distance_us / page.reuse_samples;
-        if (page.access_count > 30 && reuse_distance < 2000) {
-            const long double score = static_cast<long double>(page.access_count) /
-                                      (static_cast<long double>(reuse_distance) + 1.0L);
-            ranked_pages.emplace_back(item.first, score);
-        }
+
+        const long double hotness_score =
+            static_cast<long double>(page.access_count) /
+            (static_cast<long double>(reuse_distance) + 1.0L);
+        const long double locality_factor =
+            reuse_distance < 2000 ? 1.0L : 0.0L;
+        const long double write_bonus = page.is_write ? 0.15L : 0.0L;
+        const long double scan_penalty = reuse_distance > 4000 ? 0.25L : 0.0L;
+        const long double value_score =
+            0.55L * static_cast<long double>(page.access_count) /
+                (static_cast<long double>(page.access_count) + 20.0L) +
+            0.20L * hotness_score / (hotness_score + 15.0L) +
+            0.20L * locality_factor +
+            0.05L * write_bonus -
+            scan_penalty;
+
+        ranked_pages.emplace_back(item.first, value_score);
+        value_scores.emplace_back(item.first, value_score);
     }
+
     std::sort(ranked_pages.begin(), ranked_pages.end(), [](const auto& left, const auto& right) {
         if (left.second != right.second) {
             return left.second > right.second;
@@ -226,15 +242,31 @@ void write_training_data(const std::unordered_map<std::uint64_t, PageMetadata>& 
     }
 
     std::ofstream output("telemetry_ml_dataset.csv");
-    output << "page_id,access_frequency,is_write,reuse_distance,optimal_tier\n";
+    output << "page_id,access_frequency,is_write,reuse_distance,hotness_score,locality_factor,value_score,optimal_tier\n";
     for (const auto& item : pages) {
         const PageMetadata& page = item.second;
         const std::uint64_t reuse_distance = page.reuse_samples == 0
                                                  ? static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())
                                                  : page.total_reuse_distance_us / page.reuse_samples;
+        const long double hotness_score =
+            static_cast<long double>(page.access_count) /
+            (static_cast<long double>(reuse_distance) + 1.0L);
+        const long double locality_factor = reuse_distance < 2000 ? 1.0L : 0.0L;
+        const long double write_bonus = page.is_write ? 0.15L : 0.0L;
+        const long double scan_penalty = reuse_distance > 4000 ? 0.25L : 0.0L;
+        const long double value_score =
+            0.55L * static_cast<long double>(page.access_count) /
+                (static_cast<long double>(page.access_count) + 20.0L) +
+            0.20L * hotness_score / (hotness_score + 15.0L) +
+            0.20L * locality_factor +
+            0.05L * write_bonus -
+            scan_penalty;
+
         const int optimal_tier = preferred_pages.count(item.first) ? 1 : 0;
         output << item.first << ',' << item.second.access_count << ','
-               << (page.is_write ? 1 : 0) << ',' << reuse_distance << ',' << optimal_tier << '\n';
+               << (page.is_write ? 1 : 0) << ',' << reuse_distance << ','
+               << std::fixed << std::setprecision(8) << hotness_score << ','
+               << locality_factor << ',' << value_score << ',' << optimal_tier << '\n';
     }
 }
 
