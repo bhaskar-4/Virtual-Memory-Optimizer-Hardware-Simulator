@@ -250,6 +250,107 @@ The workflow is:
 
 ---
 
+## Benchmark settings and why they matter
+
+The dashboard exposes a small set of memory-system parameters. Each one changes the pressure on the simulator and explains why one workload may look better or worse under a different policy.
+
+### 1. DRAM frame capacity
+
+This is the number of pages that can remain in DRAM.
+
+- Label in the dashboard: `DRAM frame capacity`
+- Default value: 128 frames
+- Range: 4 to 512 frames
+
+Why it matters:
+
+- smaller capacity creates more page movements and more evictions
+- larger capacity gives more room for useful pages to remain hot
+- this is the setting that most strongly changes the difference between LRU and AI
+
+The best AI advantage usually appears when the workload is large and the DRAM budget is tight. That is where LRU most often makes poor eviction decisions.
+
+### 2. DRAM latency
+
+This is the cost of accessing data that is already inside DRAM.
+
+- Label in the dashboard: `DRAM latency (ns)`
+- Typical value: 50 ns
+
+Why it matters:
+
+- DRAM is the fast path, so access costs are relatively low
+- if a page is kept in DRAM correctly, it improves overall system latency
+- if a page is evicted too early, the system pays more expensive NVM access cost later
+
+### 3. NVM latency
+
+This is the cost of reading or writing a page from slower non-volatile memory.
+
+- Label in the dashboard: `NVM latency (ns)`
+- Typical value: 200 ns
+
+Why it matters:
+
+- NVM is slower than DRAM, which means wrong placement hurts performance quickly
+- scan-heavy workloads often trigger many NVM accesses when LRU keeps the wrong pages in DRAM
+- the AI policy tries to avoid this by predicting which pages are more likely to be reused soon
+
+### 4. TLB miss walk latency
+
+This is the cost of missing the TLB and having to perform a translation walk.
+
+- Label in the dashboard: `TLB miss walk (ns)`
+- Typical value: 15 ns
+
+Why it matters:
+
+- even before the system reaches DRAM or NVM, the address translation step costs time
+- this overhead adds to the total access latency measured as EMAT
+- when page faults increase, the translation overhead is only part of the total slowdown
+
+### 5. Workload pattern
+
+The generated workload pattern has a major effect on whether LRU or AI performs better.
+
+#### Strided scan
+
+This is the more adversarial pattern for LRU.
+
+Why it matters:
+
+- it scans through memory in a structured but disruptive way
+- the access pattern breaks simple recency assumptions
+- it often exposes the weaknesses of LRU and makes AI-assisted placement more valuable
+
+#### Tensor-local
+
+This pattern keeps access close to neighboring data and often behaves more naturally for locality-based caching.
+
+Why it matters:
+
+- it preserves better spatial or tensor-like locality
+- LRU often performs closer to AI under these conditions
+- it is useful as a comparison workload to show that the model does not always “win”
+
+### 6. Summary of why the settings matter
+
+The full system behavior is determined by the combination of:
+
+- how much DRAM is available
+- how much slower NVM is than DRAM
+- how costly a translation miss is
+- what the workload access pattern looks like
+
+This is why the simulator can show very different results under different settings.
+
+A simple rule is:
+
+- small DRAM + high NVM cost + scan-heavy workload = large AI benefit
+- large DRAM + locality-friendly workload = AI and LRU become closer
+
+---
+
 ## Run the project
 
 ### Requirements
