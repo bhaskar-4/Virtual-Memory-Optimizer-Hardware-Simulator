@@ -1,0 +1,12 @@
+__pycache__/
+.venv/
+*.py[cod]
+memory_simulator
+memory_simulator.exe
+memory_trace.txt
+run_metrics_*.csv
+run_timeline_*.csv
+page_map_*.csv
+telemetry_ml_dataset.csv
+page_predictions.csv
+page_classifier.joblib
